@@ -32,6 +32,7 @@ server <- function(input, output, session) {
     }
   })
   
+  
   ## Data import: ------------------------
   Dataset <- reactive({
     
@@ -83,7 +84,7 @@ server <- function(input, output, session) {
   output$headtable <- renderTable({
   
     return(head(Dataset()))
-  })
+  }, rownames = TRUE)
   
   output$qunatiletable <- renderTable({
     probs <- c(0, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.995,1)
@@ -124,51 +125,56 @@ server <- function(input, output, session) {
     selectInput("stress_VaR_arg","Argument:", StressVarArgNames())
   })
   
-  ## Stress Var Arg text field: --------------------
-  output$StressVaRArgText <- renderUI({
-    fun__stress_VaR_arg <- paste0("stressFunction","__",input$stress_VaR_arg)
+  output$condPanels <- renderUI({
     
-    if (is.null(input$stress_VaR_arg)) return(NULL)
+    if (length(ArgNames())==0) return(NULL)
     
-    Defaults <- formals(input$stressFunction)
-    
-    if (is.null(input[[fun__stress_VaR_arg]]))
-    {
-      textInput(fun__stress_VaR_arg, label = "Enter value:", 
-                value = deparse(Defaults[[input$stress_VaR_arg]])) 
-    } else {
-      textInput(fun__stress_VaR_arg, label = "Enter value:", 
-                value = input[[fun__stress_VaR_arg]]) 
-    }
+    tagList(
+      lapply(StressVarArgNames(), function(arg){
+        conditionalPanel(
+          condition = "input.stressFunction != ''",
+          textInput(paste0("stress_arg_", arg), arg)
+        )
+      })
+    )
   })
   
   ## Create stress VaR object: ------------------------
-  stress_VaR_obj <- reactive({
+  stress_VaR_obj <- eventReactive(input$run_stress, {
     
-    stress_VaR_args <- grep(paste0("^", input$stressFunction, "__"), 
-                            names(input), value = TRUE)
+    stress_VaR_args <- StressVarArgNames()
     
     argList <- list()
     for (i in seq_along(stress_VaR_args))
     {
-      argList[[i]] <- eval(parse(text=input[[stress_VaR_args[i]]]))
+      argList[[i]] <- eval(parse(text=input[[paste0("stress_arg_", stress_VaR_args[i])]]))
     }
-    names(argList) <- gsub(paste0("^",input$stressFunction,"__"),"",stress_VaR_args)
+    names(argList) <- gsub(paste0("^",input$stressFunction,"__"),"",
+                           stress_VaR_args)
     
     argList <- argList[names(argList) %in% StressVarArgNames()]
     
-    stress_obj <- as.data.table(
+    stress_obj <- 
       do.call(input$stressFunction,
               c(list(Dataset()),
-                argList)))
+                argList))
+    
     return(stress_obj)
   })
   
-  output$SummaryStressBase <- renderDataTable({
+  output$SummaryStressBase <- renderTable({
+
     swim <- stress_VaR_obj()
-    
     swim_summary <- summary(swim, base = TRUE)
-    
     return(swim_summary$base)
-  })
+  }, rownames = TRUE)
+  
+  output$SummaryStress <- renderTable({
+    
+    swim <- stress_VaR_obj()
+    swim_summary <- summary(swim, base = TRUE)
+    return(swim_summary[2])
+  }, rownames = TRUE)
+  
+  
 }

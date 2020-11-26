@@ -28,33 +28,8 @@ ui <- dashboardPage(
   dashboardSidebar(
     width = 300,
     column(width = 12,
-           h4("Selection"),
-           
-           selectInput("Years", 
-                       label = ("Time horizon"), 
-                       choices = c("1-Yr", "3-Yr", "5-Yr", "7-Yr", "10-Yr"),
-                       selected = "3-Yr",
-                       width = '250px'),
-           
-           
-           sliderInput("yearlychurn",
-                       label = "Prior years' weighting discount rate",
-                       min = 0, sep = ",",
-                       max = 95, value = 20, post  = " %",
-                       step = 5, width = '250px'),
-           radioButtons("labelpeers", "Label peers:",
-                        choices = c(
-                          "Yes" = TRUE,
-                          "No" = FALSE
-                        ), inline = TRUE,
-                        selected = FALSE),
-           radioButtons("trend", "Chart type:",
-                        choices = c(
-                          "Scatter" = FALSE,
-                          "Trend" = TRUE
-                        ), inline = TRUE,
-                        selected = FALSE)
-    )
+           h4("Shiny SWIM"),
+             )
   ),
   
   # BODY --------------------------------------------------------------------
@@ -122,21 +97,21 @@ ui <- dashboardPage(
                           style = "background-color:#FFFFFF;",
                           h3("Stress"),
                           selectInput("stressFunction", 
-                                      "Function to stress simulations:", c(
-                                        "stress_VaR_ES",
+                                      "Select function to stress simulations:", c(
                                         "stress_VaR",
-                                        "stress_mean_sd",
+                                        "stress_VaR_ES",
                                         "stress_mean",
+                                        "stress_mean_sd",
                                         "stress_moment",
                                         "stress_prob"
                                       )),
                           # Argument selector:
-                          htmlOutput("StressVaRArgSelect"),
-                          
-                          # Argument field:
-                          htmlOutput("StressVaRArgText"),
-                          br()#,
-                          #DT::dataTableOutput("SummaryStressBase")
+                          uiOutput("condPanels"),
+                          br(),
+                          actionButton("run_stress", "Run Stress"),
+                          br(), br(),
+                          tableOutput("SummaryStressBase"),
+                          tableOutput("SummaryStress")
                           
                    )
                  )
