@@ -115,7 +115,6 @@ server <- function(input, output, session) {
   StressVarArgNames <- reactive({
     Names <- names(formals(input$stressFunction)[-1])
     Names <- Names[Names!="..."]
-    print(Names)
     return(Names)
   })
   
@@ -144,6 +143,7 @@ server <- function(input, output, session) {
     
     stress_VaR_args <- StressVarArgNames()
     
+    print(stress_VaR_args)
     argList <- list()
     for (i in seq_along(stress_VaR_args))
     {
@@ -151,8 +151,11 @@ server <- function(input, output, session) {
     }
     names(argList) <- gsub(paste0("^",input$stressFunction,"__"),"",
                            stress_VaR_args)
+   
     
     argList <- argList[names(argList) %in% StressVarArgNames()]
+    
+    
     
     stress_obj <- 
       do.call(input$stressFunction,

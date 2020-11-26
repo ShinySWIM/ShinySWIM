@@ -7,7 +7,7 @@ ui <- dashboardPage(
   
   dashboardHeader(
     title = span(img(src = "SWIM_logo.png", height = 35), "SWIM"),
-    titleWidth = 300,
+    titleWidth = 150,
     
     tags$li(
       a(
@@ -26,7 +26,7 @@ ui <- dashboardPage(
   # SIDEBAR -----------------------------------------------------------------
   
   dashboardSidebar(
-    width = 300,
+    width = 150,
     column(width = 12,
            h4("Shiny SWIM"),
              )
