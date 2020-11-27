@@ -96,21 +96,6 @@ server <- function(input, output, session) {
   }, rownames = TRUE)
   
   
-  ## Download save: -----------------------------
-  
-  output$downloadSave <- downloadHandler(
-    filename = "SWIM_Object.RData",
-    content = function(con) {
-      
-      assign(input$name, Dataset()[,input$vars,drop=FALSE])
-      
-      save(list=input$name, file=con)
-    }
-  )
-  
-  
-  
-  
   ## Stress argument names: -------------------------
   StressVarArgNames <- reactive({
     Names <- names(formals(input$stressFunction)[-1])
@@ -118,12 +103,7 @@ server <- function(input, output, session) {
     return(Names)
   })
   
-  ## Stress Var Argument selector: --------------------
-  output$StressVaRArgSelect <- renderUI({
-    if (length(StressVarArgNames())==0) return(NULL)
-    selectInput("stress_VaR_arg","Argument:", StressVarArgNames())
-  })
-  
+  ## Create conditional stress UI ----------------
   output$condPanels <- renderUI({
     
     if (length(ArgNames())==0) return(NULL)
@@ -143,7 +123,6 @@ server <- function(input, output, session) {
     
     stress_VaR_args <- StressVarArgNames()
     
-    print(stress_VaR_args)
     argList <- list()
     for (i in seq_along(stress_VaR_args))
     {
@@ -154,8 +133,6 @@ server <- function(input, output, session) {
    
     
     argList <- argList[names(argList) %in% StressVarArgNames()]
-    
-    
     
     stress_obj <- 
       do.call(input$stressFunction,
