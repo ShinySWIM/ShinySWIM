@@ -55,7 +55,7 @@ server <- function(input, output, session) {
     
     Dataset <- as.data.table(
       do.call(input$readFunction,
-              c(list(input$file$datapath),
+              c(list(input$user_data_file$datapath),
                 argList)))
     return(Dataset)
   })
