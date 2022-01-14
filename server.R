@@ -1726,10 +1726,6 @@ server <- function(input, output, session) {
     
   )
   
-  output$sessionInfo <- renderPrint({
-    knitr::kable(x=utils::capture.output(utils::sessionInfo()))
-  }) 
-  
   output$dwn_btnZ <- downloadHandler(
     filename = function() {
       paste("data-", Sys.Date(), ".",input$download_typeZ, sep="")
@@ -1769,10 +1765,12 @@ server <- function(input, output, session) {
       
       
     }
-   
     
   )
   
+  output$sessionInfo <- renderPrint({
+    utils::capture.output(utils::sessionInfo())
+  })
   
 }
   

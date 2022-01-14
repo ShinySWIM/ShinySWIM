@@ -600,9 +600,9 @@ ui <- navbarPage(
                                    br(),
                                    p("Shiny: ShinySWIM is powered by the Shiny web application framework (RStudio)"),
                                  br(),
+                                 br(),
                                  h3("Session Info"),
                                  htmlOutput("sessionInfo"),
-                                 br(),
                                    h3("Issues"),
                                    p("If you need help or suggest improvements please open an issue on GitHub. xxx add link here xxx")
                           )
