@@ -1,74 +1,81 @@
+
 server <- function(input, output, session) {
   
   options(shiny.maxRequestSize = 30*1024^2)
   
   ##### Upload data: -------------------
-  ## Argument names: -------------------------
-  ArgNames <- reactive({
-    Names <- names(formals(input$readFunction)[-1])
-    Names <- Names[Names!="..."]
-    return(Names)
-  })
-  
-  ## Argument selector: --------------------
-  output$ArgSelect <- renderUI({
-    if (length(ArgNames())==0) return(NULL)
-    
-    selectInput("arg","Argument:",ArgNames())
-  })
-  
-  ## Arg text field: --------------------
-  output$ArgText <- renderUI({
-    fun__arg <- paste0(input$readFunction,"__",input$arg)
-    
-    if (is.null(input$arg)) return(NULL)
-    
-    Defaults <- formals(input$readFunction)
-    
-    if (is.null(input[[fun__arg]]))
-    {
-      textInput(fun__arg, label = "Enter value:", value = deparse(Defaults[[input$arg]])) 
-    } else {
-      textInput(fun__arg, label = "Enter value:", value = input[[fun__arg]]) 
-    }
-  })
-  
   
   ## Data import: ------------------------
   Dataset <- reactive({
     
-    if (is.null(input$user_data_file)) {
+    if (is.null(input$file_upload)) {
       ## User has not uploaded a file yet -------------
       data("credit_data")
       return(data.table(credit_data))
     }
     
-    args <- grep(paste0("^",input$readFunction,"__"), names(input), value = TRUE)
+    req(input$file_upload)
     
-    argList <- list()
-    for (i in seq_along(args))
-    {
-      argList[[i]] <- eval(parse(text=input[[args[i]]]))
+    da_tmp <- try(read.csv(input$file_upload$datapath,
+                           header = input$header,
+                           sep = input$sep,
+                           quote = input$quote,
+                           dec = input$dec,
+                           na.strings = c("NA", ".")),
+                  silent = TRUE)
+    if(inherits(da_tmp, "try-error")){
+      showNotification(
+        "File upload was not successful.",
+        duration = NA,
+        type = "error"
+      )
+      req(FALSE)
     }
-    names(argList) <- gsub(paste0("^",input$readFunction,"__"),"",args)
-    
-    argList <- argList[names(argList) %in% ArgNames()]
-    
-    Dataset <- as.data.table(
-      do.call(input$readFunction,
-              c(list(input$user_data_file$datapath),
-                argList)))
-    return(Dataset)
+    if("." %in% names(da_tmp)){
+      if(!"X." %in% names(da_tmp)){
+        names(da_tmp)[names(da_tmp) == "."] <- "X."
+      } else{
+        showNotification(
+          HTML(paste(
+            "The column name", code("."), "(dot) is not allowed. Automatically renaming this",
+            "column to", code("X."), "failed since there already exists a column",
+            code("X.", .noWS = "after"), "."
+          )),
+          duration = NA,
+          type = "error"
+        )
+        req(FALSE)
+      }
+    }
+    return(da_tmp)
+  })
+  
+  #------------------------
+  # Data preview
+  
+  output$da_view <- renderDataTable(expr = {
+      d <- head(Dataset())
+      d <- format(round(d,input$table_digits0),nsmall = input$table_digits0)
+      return(d)
+  }, options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
+               paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
+  )
+  
+  output$da_str <- renderPrint({
+    str(Dataset())
   })
   
   ## Name of data set ---------------------------
   output$dataname <- renderText({
-    if(is.null(input$user_data_file)){
-      "Default data: credit_data"
+    d <- Dataset()
+    if(is.null(input$file_upload)){
+      "Default data: credit_data (100000 obs. of 7 variables)"
     }else{
-      paste("User data:", input$user_data_file)
+      paste("User data: ", input$file_upload$name," (",dim(d)[1]," obs. of ",dim(d)[2]," variables)",sep="")
     }
   })
+  
   
   ## Select variables: --------------------------
   output$varselect <- renderUI({
@@ -82,21 +89,16 @@ server <- function(input, output, session) {
   })
   
   ## Show table: --------------------------
-  output$headtable <- renderTable({
-    
-    return(head(Dataset()))
-  }, rownames = TRUE)
   
-  output$quantiletable <- renderTable({
-    probs <- c(0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99 ,1)
-    return(
-      apply(Dataset(), 2, 
-            quantile, 
-            probs)  
-    )
-  }, rownames = TRUE)
-  
-  
+  output$headtable <- renderDataTable(expr = {
+    d <- head(Dataset())
+    d <- format(round(d,input$table_digits0),nsmall = input$table_digits0)
+    return(d)
+  }, caption = htmltools::tags$caption("Snippet of the data (first 6 rows)", style="color:black; font-weight: bold"),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
+               paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
+  )
   
   
   ##### Stress: -------------------
@@ -106,6 +108,9 @@ server <- function(input, output, session) {
   StressVarArgNames1 <- reactive({
     Names <- names(formals(input$stressFunction1)[-1])
     Names <- Names[Names!="..."]
+    Names <- Names[Names!="log"]
+    Names <- Names[Names!="names"]
+    
     return(Names)
   })
   
@@ -113,19 +118,56 @@ server <- function(input, output, session) {
   StressVarArgNames2 <- reactive({
     Names <- names(formals(input$stressFunction2)[-1])
     Names <- Names[Names!="..."]
+    Names <- Names[Names!="log"]
+    Names <- Names[Names!="names"]
     return(Names)
   })
   ## Stress3 argument names: -------------------------
   StressVarArgNames3 <- reactive({
     Names <- names(formals(input$stressFunction3)[-1])
     Names <- Names[Names!="..."]
+    Names <- Names[Names!="log"]
+    Names <- Names[Names!="names"]
     return(Names)
+  })
+  
+  #helper for selected stress1
+  output$selected_stress1 <- renderText({ 
+    s <- ""
+    if (input$stressFunction1=="stress_VaR") s <- "For this stress, the VaR of a chosen variable is stressed in order to reach a specified level"
+    if (input$stressFunction1=="stress_VaR_ES") s <- "For this stress, both the VaR and the ES of a chosen variable are stressed in order to reach the specified levels"
+    if (input$stressFunction1=="stress_mean") s <- "For this stress, the mean of a chosen variable is stressed in order to reach a specified level"
+    if (input$stressFunction1=="stress_mean_sd") s <- "For this stress, both the mean and the sd of a chosen variable are stressed in order to reach the specified levels"
+    s
+  })
+  
+  output$selected_stress2 <- renderText({ 
+    s <- ""
+    if (input$stressFunction2=="stress_VaR") s <- "For this stress, the VaR of a chosen variable is stressed in order to reach a specified level"
+    if (input$stressFunction2=="stress_VaR_ES") s <- "For this stress, both the VaR and the ES of a chosen variable are stressed in order to reach the specified levels"
+    if (input$stressFunction2=="stress_mean") s <- "For this stress, the mean of a chosen variable is stressed in order to reach a specified level"
+    if (input$stressFunction2=="stress_mean_sd") s <- "For this stress, both the mean and the sd of a chosen variable are stressed in order to reach the specified levels"
+    s
+  })
+  
+  output$selected_stress3 <- renderText({ 
+    s <- ""
+    if (input$stressFunction3=="stress_VaR") s <- "For this stress, the VaR of a chosen variable is stressed in order to reach a specified level"
+    if (input$stressFunction3=="stress_VaR_ES") s <- "For this stress, both the VaR and the ES of a chosen variable are stressed in order to reach the specified levels"
+    if (input$stressFunction3=="stress_mean") s <- "For this stress, the mean of a chosen variable is stressed in order to reach a specified level"
+    if (input$stressFunction3=="stress_mean_sd") s <- "For this stress, both the mean and the sd of a chosen variable are stressed in order to reach the specified levels"
+    s
+  })
+  
+  output$selected_sens_measures <- renderText({ 
+    s <- ""
+    if (input$sens_function=="Gamma") s <- "The Gamma measure quantified a normalised change in a variable's expectation, caused by a stress"
+    if (input$sens_function=="Wasserstein") s <- "The Wasserstein measure gives the distance between the variable's distributions under the baseline and stressed models"
+    s
   })
   
   ## Create conditional stress1 UI ----------------
   output$condPanels1 <- renderUI({
-    
-    if (length(ArgNames())==0) return(NULL)
     
     stress_args <- StressVarArgNames1()
     pos_k <- which(stress_args=="k")
@@ -135,32 +177,31 @@ server <- function(input, output, session) {
       lapply(stress_args, function(arg){
         conditionalPanel(
           condition = "input.stressFunction1 != ''",
+          if (input$stressFunction1!="stress_VaR"){
           div(
-            #style="display: inline-block;vertical-align:bottom;width: 500px",
-            helpText(p(subselect_text(arg)))),
+            helpText(p(subselect_text1(arg))))
+            } else {
+              div(
+              helpText(p(subselect_text(arg))))
+            },
           if ((arg != "normalise")&&(arg != "k")){
             div(
-            #  style="display: inline-block;vertical-align:bottom;width: 150px",
               textInput(inputId = paste0("stress_arg_1", arg),label =  NULL, width = "50%"))
-            },
+          },
           if (arg == "normalise"){
             div(
-           #   style="display: inline-block;vertical-align:bottom;width: 150px",
-              selectInput(inputId = paste0("stress_arg_1", arg), label = NULL, choices = c(TRUE,FALSE),selected = FALSE,width = "50%"))
-            },
+             hidden(selectInput(inputId = paste0("stress_arg_1", arg), label = NULL, choices = c(TRUE,FALSE),selected = FALSE,width = "50%")))
+          },
           if (arg == "k"){
             div(
-           #   style="display: inline-block;vertical-align:bottom;width: 150px",
               selectInput(inputId = paste0("stress_arg_1", arg), label = NULL, choices = colnames(Dataset()),width = "50%"))
-            }
+          }
         )
       }))
   })
   
   ## Create conditional stress2 UI ----------------
   output$condPanels2 <- renderUI({
-    
-    if (length(ArgNames())==0) return(NULL)
     
     stress_args <- StressVarArgNames2()
     pos_k <- which(stress_args=="k")
@@ -170,34 +211,31 @@ server <- function(input, output, session) {
       lapply(stress_args, function(arg){
         conditionalPanel(
           condition = "input.stressFunction2 != ''",
-          div(
-            #style="display: inline-block;vertical-align:bottom;width: 500px",
-            helpText(p(subselect_text(arg)))),
+          if (input$stressFunction2!="stress_VaR"){
+            div(
+              helpText(p(subselect_text1(arg))))
+          } else {
+            div(
+              helpText(p(subselect_text(arg))))
+          },
           if ((arg != "normalise")&&(arg != "k")){
             div(
-              #  style="display: inline-block;vertical-align:bottom;width: 150px",
               textInput(inputId = paste0("stress_arg_2", arg),label =  NULL, width = "50%"))
           },
           if (arg == "normalise"){
             div(
-              #   style="display: inline-block;vertical-align:bottom;width: 150px",
-              selectInput(inputId = paste0("stress_arg_2", arg), label = NULL, choices = c(TRUE,FALSE),selected = FALSE,width = "50%"))
+              hidden(selectInput(inputId = paste0("stress_arg_2", arg), label = NULL, choices = c(TRUE,FALSE),selected = FALSE,width = "50%")))
           },
           if (arg == "k"){
             div(
-              #   style="display: inline-block;vertical-align:bottom;width: 150px",
               selectInput(inputId = paste0("stress_arg_2", arg), label = NULL, choices = colnames(Dataset()),width = "50%"))
           }
         )
       }))
-    
-    
   })
   
   ## Create conditional stress3 UI ----------------
   output$condPanels3 <- renderUI({
-    
-    if (length(ArgNames())==0) return(NULL)
     
     stress_args <- StressVarArgNames3()
     pos_k <- which(stress_args=="k")
@@ -207,28 +245,29 @@ server <- function(input, output, session) {
       lapply(stress_args, function(arg){
         conditionalPanel(
           condition = "input.stressFunction3 != ''",
-          div(
-            #style="display: inline-block;vertical-align:bottom;width: 500px",
-            helpText(p(subselect_text(arg)))),
+          if (input$stressFunction3!="stress_VaR"){
+            div(
+              helpText(p(subselect_text1(arg))))
+          } else {
+            div(
+              helpText(p(subselect_text(arg))))
+          },
           if ((arg != "normalise")&&(arg != "k")){
             div(
-              #  style="display: inline-block;vertical-align:bottom;width: 150px",
               textInput(inputId = paste0("stress_arg_3", arg),label =  NULL, width = "50%"))
           },
           if (arg == "normalise"){
             div(
-              #   style="display: inline-block;vertical-align:bottom;width: 150px",
-              selectInput(inputId = paste0("stress_arg_3", arg), label = NULL, choices = c(TRUE,FALSE),selected = FALSE,width = "50%"))
+              hidden(selectInput(inputId = paste0("stress_arg_3", arg), label = NULL, choices = c(TRUE,FALSE),selected = FALSE,width = "50%")))
           },
           if (arg == "k"){
             div(
-              #   style="display: inline-block;vertical-align:bottom;width: 150px",
               selectInput(inputId = paste0("stress_arg_3", arg), label = NULL, choices = colnames(Dataset()),width = "50%"))
           }
         )
       }))
   })
-
+  
   
   ## Create stress VaR object 1: ------------------------
   stress_VaR_obj1 <- eventReactive(input$run_stress1, {
@@ -240,33 +279,197 @@ server <- function(input, output, session) {
     for (i in seq_along(stress_VaR_args))
     {
       if (stress_VaR_args[i]!="k"){
-      argList[[i]] <- eval(parse(text=input[[paste0("stress_arg_1", stress_VaR_args[i])]]))}
+        argList[[i]] <- eval(parse(text=input[[paste0("stress_arg_1", stress_VaR_args[i])]]))}
       if (stress_VaR_args[i]=="k"){
         argList[[i]] <- eval(parse(text=which(colnames(Dataset())==input[["stress_arg_1k"]])))}
     }
     
-   
-    
     names(argList) <- gsub(paste0("^",input$stressFunction1,"__"),"",
                            stress_VaR_args)
     
-    
     argList <- argList[names(argList) %in% StressVarArgNames1()]
-  
+    
+    if (!is.null(argList$normalise)) argList$normalise <- TRUE
+    
+    #Dataset
+    x <- as.matrix(Dataset())
+    
+    #validation for all functions
+    validate(
+      need(!anyNA(argList$x) ,"Data contains NA")
+    )
+    
+    #Validation stress_VaR
+    if (input$stressFunction1=="stress_VaR"){
+      
+      alpha <- argList$alpha
+      q <- argList$q
+      q_ratio <- argList$q_ratio
+      k <- as.numeric(argList$k)
+      n <- length(x[, k])
+      
+      validate(
+        need( ((alpha > 0) & (alpha < 1) ), "Invalid alpha argument")
+      )
+      
+      VaR <- stats::quantile(x[, k], alpha, names = FALSE, type = 1)
+      
+      validate(
+        need( (is.null(q) || is.null(q_ratio)) ,"Only provide q or q_ratio"),
+        need( (!is.null(q) || !is.null(q_ratio)) ,"No stress defined")
+      )
+      
+      if(is.null(q)){
+        validate(
+          need(is.numeric(q_ratio) ,"Invalid q_ratio argument")
+        )
+        q <- q_ratio*VaR
+      } else {
+        validate(
+          need(is.numeric(q) ,"Invalid q argument")
+        )
+      }
+      
+      validate(
+        need(!any(VaR != q & (stats::ecdf(x[, k]))(VaR) == (stats::ecdf(x[, k]))(q)),"There are not enough data points, specifically, there is none between VaR and q."),
+        need((!any(q >= max(x[, k])) && !any(q <= min(x[, k]))),"q needs to be smaller than the largest and larger than the smallest data point.")
+      )
+    }
+    
+    #Validation Stress_VaR_ES
+    if (input$stressFunction1=="stress_VaR_ES"){
+      
+      
+      alpha <- argList$alpha
+      q <- argList$q
+      q_ratio <- argList$q_ratio
+      s <- argList$s
+      s_ratio <- argList$s_ratio
+      k <- as.numeric(argList$k)
+      n <- length(x[, k])
+      
+      validate(
+        need( ((alpha > 0) & (alpha < 1) ), "Invalid alpha argument"),
+        need( (is.null(q) || is.null(q_ratio)) ,"Only provide q or q_ratio"),
+        need( (is.null(s) || is.null(s_ratio)),"Only provide s or s_ratio"),
+        need( (!is.null(q) || !is.null(q_ratio)) ,"no q or q_ratio defined"),
+        need( (!is.null(s) || !is.null(s_ratio)) ,"no s or s_ratio defined")
+      )
+      
+      VaR <- stats::quantile(x[, k], alpha, names = FALSE, type = 1)
+      ecdfx <- stats::ecdf(x[, k])
+        
+        if(is.null(q)){
+          validate(
+          need(is.numeric(q_ratio) ,"Invalid q_ratio argument")
+          )
+          q <- q_ratio*VaR
+          VaR_achieved <- max(x[, k][x[, k] <= q])
+        } else {
+          validate(
+          need(is.numeric(q) ,"Invalid q argument")
+          )
+          VaR_achieved <- max(x[, k][x[, k] <= q])
+        }
+      
+      if (is.null(s)) {
+        validate(
+          need(is.numeric(s_ratio) ,"Invalid s_ratio argument")
+        )
+        ES <- mean((x[, k] - VaR_achieved) * (x[, k] > VaR_achieved))/(1 - alpha) + VaR_achieved
+        s <- s_ratio*ES
+      }
+      else {
+        validate(
+        need( (is.numeric(s)),"Invalid s argument")
+        )
+        ES <- mean((x[, k] - VaR_achieved) * (x[, k] > VaR_achieved))/(1 - alpha) + VaR_achieved
+      }
+      
+      validate(
+        need (any(q <= s),"q needs to be smaller than s."),
+        need (!any(VaR != q & ecdfx(VaR) == ecdfx(q)) ,"There are not enough data points, specifically, there is none between VaR and q."),
+        need (!any(abs(ecdfx(q) - ecdfx(s)) <= 1/n) ,"There are not enough data points, specifically, there is none between q and s."),
+        need (!any(s >= max(x[, k])) && !any(q <= min(x[, k])) ,"s needs to be smaller than the largest and all q larger than the smallest data point.")
+      )
+    }
+    
+    #Validation stress_mean
+    if (input$stressFunction1=="stress_mean"){
+      k <- argList$k
+      m <- argList$new_means
+      f <- as.list(rep(list(function(x) x), length(k)))
+      z <- matrix(0, ncol = length(f), nrow = nrow(x))
+      for (i in 1:length(f)) {
+        z[, i] <- apply(X = x[, k, drop = FALSE], MARGIN = 1, 
+                        FUN = f[[i]])
+      }
+      min.fz <- apply(z, 2, min)
+      max.fz <- apply(z, 2, max)
+      
+      validate(
+        need(is.numeric(m) ,"Invalid stressed mean argument")
+      )
+      
+      validate(
+        need( (!any(m < min.fz) && !any(m > max.fz)),  "Value of stressed mean out of range")
+      )
+      
+    }
+    
+    #Validation stress_mean_sd
+    if (input$stressFunction1=="stress_mean_sd"){
+      k <- argList$k
+      new_mean <- argList$new_means
+      
+      validate(
+        need(is.numeric(new_mean) ,"Invalid stressed mean argument")
+      )
+      
+      new_sd <- argList$new_sd
+      
+      validate(
+        need(is.numeric(new_sd) ,"Invalid stress sd argument")
+      )
+      
+      m <- c(new_mean, new_mean^2 + new_sd^2)
+      
+      means <- rep(list(function(x) x), length(k))
+      second_moments <- rep(list(function(x) x^2), length(k))
+      f <- as.list(c(means, second_moments))
+      z <- matrix(0, ncol = length(f), nrow = nrow(x))
+      for (i in 1:length(f)) {
+        z[, i] <- apply(X = x[, k, drop = FALSE], MARGIN = 1, 
+                        FUN = f[[i]])
+      }
+      min.fz <- apply(z, 2, min)
+      max.fz <- apply(z, 2, max)
+      
+      validate(
+        need( (!any(m < min.fz) && !any(m > max.fz)),  "Values out of range")
+      )
+    }
+    
     stress_obj <-  do.call(input$stressFunction1,c(list(Dataset()),argList))
     
     performedStress$bool[1] <- TRUE
     shinyjs::show("stressFunction2")
     shinyjs::show("condPanels2")
     shinyjs::show("run_stress2")
+    shinyjs::show("selected_stress2")
     shinyjs::hide("text2")
-    #shinyjs::show("table_digits1")
+    shinyjs::hide("file_upload")
+    shinyjs::show("file_upload_text")
+    shinyjs::show("reload")
+    updateRadioButtons(session, inputId = "download_stress1", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1"), inline = FALSE)
+    updateRadioButtons(session, inputId = "download_stress2", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1"), inline = FALSE)
+    updateRadioButtons(session, inputId = "download_stress3", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1"), inline = FALSE)
     
     weights <- get_weights(stress_obj)
     diff <- max(weights)-min(weights)
     if (diff!=0) showNotification(ui = "The stress has been performed successfully! Wait...",type = "message",duration = 4)
     else showNotification(ui = "Something went wrong!",type = "warning",duration = 5)
-   
+    
     return(stress_obj)
   }) 
   
@@ -291,19 +494,180 @@ server <- function(input, output, session) {
     
     argList <- argList[names(argList) %in% StressVarArgNames2()]
     
-    stress_obj <- 
-      do.call(input$stressFunction2,
-              c(list(Dataset()),
-                argList))
+    if (!is.null(argList$normalise)) argList$normalise <- TRUE
+    
+    #Dataset
+    x <- as.matrix(Dataset())
+    
+    #validation for all functions
+    validate(
+      need(!anyNA(argList$x) ,"Data contains NA")
+    )
+    
+    #Validation stress_VaR
+    if (input$stressFunction2=="stress_VaR"){
+      
+      alpha <- argList$alpha
+      q <- argList$q
+      q_ratio <- argList$q_ratio
+      k <- as.numeric(argList$k)
+      n <- length(x[, k])
+      
+      validate(
+        need( ((alpha > 0) & (alpha < 1) ), "Invalid alpha argument")
+      )
+      
+      VaR <- stats::quantile(x[, k], alpha, names = FALSE, type = 1)
+      
+      validate(
+        need( (is.null(q) || is.null(q_ratio)) ,"Only provide q or q_ratio"),
+        need( (!is.null(q) || !is.null(q_ratio)) ,"No stress defined")
+      )
+      
+      if(is.null(q)){
+        validate(
+          need(is.numeric(q_ratio) ,"Invalid q_ratio argument")
+        )
+        q <- q_ratio*VaR
+      } else {
+        validate(
+          need(is.numeric(q) ,"Invalid q argument")
+        )
+      }
+      
+      validate(
+        need(!any(VaR != q & (stats::ecdf(x[, k]))(VaR) == (stats::ecdf(x[, k]))(q)),"There are not enough data points, specifically, there is none between VaR and q."),
+        need((!any(q >= max(x[, k])) && !any(q <= min(x[, k]))),"q needs to be smaller than the largest and larger than the smallest data point.")
+      )
+    }
+    
+    #Validation Stress_VaR_ES
+    if (input$stressFunction2=="stress_VaR_ES"){
+      
+      
+      alpha <- argList$alpha
+      q <- argList$q
+      q_ratio <- argList$q_ratio
+      s <- argList$s
+      s_ratio <- argList$s_ratio
+      k <- as.numeric(argList$k)
+      n <- length(x[, k])
+      
+      validate(
+        need( ((alpha > 0) & (alpha < 1) ), "Invalid alpha argument"),
+        need( (is.null(q) || is.null(q_ratio)) ,"Only provide q or q_ratio"),
+        need( (is.null(s) || is.null(s_ratio)),"Only provide s or s_ratio"),
+        need( (!is.null(q) || !is.null(q_ratio)) ,"no q or q_ratio defined"),
+        need( (!is.null(s) || !is.null(s_ratio)) ,"no s or s_ratio defined")
+      )
+      
+      VaR <- stats::quantile(x[, k], alpha, names = FALSE, type = 1)
+      ecdfx <- stats::ecdf(x[, k])
+      
+      if(is.null(q)){
+        validate(
+          need(is.numeric(q_ratio) ,"Invalid q_ratio argument")
+        )
+        q <- q_ratio*VaR
+        VaR_achieved <- max(x[, k][x[, k] <= q])
+      } else {
+        validate(
+          need(is.numeric(q) ,"Invalid q argument")
+        )
+        VaR_achieved <- max(x[, k][x[, k] <= q])
+      }
+      
+      if (is.null(s)) {
+        validate(
+          need(is.numeric(s_ratio) ,"Invalid s_ratio argument")
+        )
+        ES <- mean((x[, k] - VaR_achieved) * (x[, k] > VaR_achieved))/(1 - alpha) + VaR_achieved
+        s <- s_ratio*ES
+      }
+      else {
+        validate(
+          need( (is.numeric(s)),"Invalid s argument")
+        )
+        ES <- mean((x[, k] - VaR_achieved) * (x[, k] > VaR_achieved))/(1 - alpha) + VaR_achieved
+      }
+      
+      validate(
+        need (any(q <= s),"q needs to be smaller than s."),
+        need (!any(VaR != q & ecdfx(VaR) == ecdfx(q)) ,"There are not enough data points, specifically, there is none between VaR and q."),
+        need (!any(abs(ecdfx(q) - ecdfx(s)) <= 1/n) ,"There are not enough data points, specifically, there is none between q and s."),
+        need (!any(s >= max(x[, k])) && !any(q <= min(x[, k])) ,"s needs to be smaller than the largest and all q larger than the smallest data point.")
+      )
+    }
+    
+    #Validation stress_mean
+    if (input$stressFunction2=="stress_mean"){
+      k <- argList$k
+      m <- argList$new_means
+      f <- as.list(rep(list(function(x) x), length(k)))
+      z <- matrix(0, ncol = length(f), nrow = nrow(x))
+      for (i in 1:length(f)) {
+        z[, i] <- apply(X = x[, k, drop = FALSE], MARGIN = 1, 
+                        FUN = f[[i]])
+      }
+      min.fz <- apply(z, 2, min)
+      max.fz <- apply(z, 2, max)
+      
+      validate(
+        need(is.numeric(m) ,"Invalid stressed mean argument")
+      )
+      
+      validate(
+        need( (!any(m < min.fz) && !any(m > max.fz)),  "Value of stressed mean out of range")
+      )
+      
+    }
+    
+    #Validation stress_mean_sd
+    if (input$stressFunction2=="stress_mean_sd"){
+      k <- argList$k
+      new_mean <- argList$new_means
+      
+      validate(
+        need(is.numeric(new_mean) ,"Invalid stressed mean argument")
+      )
+      
+      new_sd <- argList$new_sd
+      
+      validate(
+        need(is.numeric(new_sd) ,"Invalid stress sd argument")
+      )
+      
+      m <- c(new_mean, new_mean^2 + new_sd^2)
+      
+      means <- rep(list(function(x) x), length(k))
+      second_moments <- rep(list(function(x) x^2), length(k))
+      f <- as.list(c(means, second_moments))
+      z <- matrix(0, ncol = length(f), nrow = nrow(x))
+      for (i in 1:length(f)) {
+        z[, i] <- apply(X = x[, k, drop = FALSE], MARGIN = 1, 
+                        FUN = f[[i]])
+      }
+      min.fz <- apply(z, 2, min)
+      max.fz <- apply(z, 2, max)
+      
+      validate(
+        need( (!any(m < min.fz) && !any(m > max.fz)),  "Values out of range")
+      )
+    }
+    
+    stress_obj <-  do.call(input$stressFunction2,c(list(Dataset()),argList))
     
     performedStress$bool[2] <- TRUE
     shinyjs::show("stressFunction3")
     shinyjs::show("condPanels3")
     shinyjs::show("run_stress3")
+    shinyjs::show("selected_stress3")
     shinyjs::hide("text3")
     updateCheckboxGroupInput(session, inputId = "plotStress1",choices = list("Stress 1" = 1, "Stress 2" = 2), selected = 2)
     updateCheckboxGroupInput(session, inputId = "plotStress2",choices = list("Stress 1" = 1, "Stress 2" = 2), selected = 2)
-    
+    updateRadioButtons(session, inputId = "download_stress1", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1",Stress2="Stress2"), inline = FALSE)
+    updateRadioButtons(session, inputId = "download_stress2", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1",Stress2="Stress2"), inline = FALSE)
+    updateRadioButtons(session, inputId = "download_stress3", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1",Stress2="Stress2"), inline = FALSE)
     weights <- get_weights(stress_obj)
     diff <- max(weights)-min(weights)
     if (diff!=0) showNotification(ui = "The stress has been performed successfully! Wait...",type = "message",duration = 4)
@@ -330,18 +694,178 @@ server <- function(input, output, session) {
     names(argList) <- gsub(paste0("^",input$stressFunction3,"__"),"",
                            stress_VaR_args)
     
-    
+  
     argList <- argList[names(argList) %in% StressVarArgNames3()]
     
-    stress_obj <- 
-      do.call(input$stressFunction3,
-              c(list(Dataset()),
-                argList))
+    if (!is.null(argList$normalise)) argList$normalise <- TRUE
+    
+    #Dataset
+    x <- as.matrix(Dataset())
+    
+    #validation for all functions
+    validate(
+      need(!anyNA(argList$x) ,"Data contains NA")
+    )
+    
+    #Validation stress_VaR
+    if (input$stressFunction3=="stress_VaR"){
+      
+      alpha <- argList$alpha
+      q <- argList$q
+      q_ratio <- argList$q_ratio
+      k <- as.numeric(argList$k)
+      n <- length(x[, k])
+      
+      validate(
+        need( ((alpha > 0) & (alpha < 1) ), "Invalid alpha argument")
+      )
+      
+      VaR <- stats::quantile(x[, k], alpha, names = FALSE, type = 1)
+      
+      validate(
+        need( (is.null(q) || is.null(q_ratio)) ,"Only provide q or q_ratio"),
+        need( (!is.null(q) || !is.null(q_ratio)) ,"No stress defined")
+      )
+      
+      if(is.null(q)){
+        validate(
+          need(is.numeric(q_ratio) ,"Invalid q_ratio argument")
+        )
+        q <- q_ratio*VaR
+      } else {
+        validate(
+          need(is.numeric(q) ,"Invalid q argument")
+        )
+      }
+      
+      validate(
+        need(!any(VaR != q & (stats::ecdf(x[, k]))(VaR) == (stats::ecdf(x[, k]))(q)),"There are not enough data points, specifically, there is none between VaR and q."),
+        need((!any(q >= max(x[, k])) && !any(q <= min(x[, k]))),"q needs to be smaller than the largest and larger than the smallest data point.")
+      )
+    }
+    
+    #Validation Stress_VaR_ES
+    if (input$stressFunction3=="stress_VaR_ES"){
+      
+      
+      alpha <- argList$alpha
+      q <- argList$q
+      q_ratio <- argList$q_ratio
+      s <- argList$s
+      s_ratio <- argList$s_ratio
+      k <- as.numeric(argList$k)
+      n <- length(x[, k])
+      
+      validate(
+        need( ((alpha > 0) & (alpha < 1) ), "Invalid alpha argument"),
+        need( (is.null(q) || is.null(q_ratio)) ,"Only provide q or q_ratio"),
+        need( (is.null(s) || is.null(s_ratio)),"Only provide s or s_ratio"),
+        need( (!is.null(q) || !is.null(q_ratio)) ,"no q or q_ratio defined"),
+        need( (!is.null(s) || !is.null(s_ratio)) ,"no s or s_ratio defined")
+      )
+      
+      VaR <- stats::quantile(x[, k], alpha, names = FALSE, type = 1)
+      ecdfx <- stats::ecdf(x[, k])
+      
+      if(is.null(q)){
+        validate(
+          need(is.numeric(q_ratio) ,"Invalid q_ratio argument")
+        )
+        q <- q_ratio*VaR
+        VaR_achieved <- max(x[, k][x[, k] <= q])
+      } else {
+        validate(
+          need(is.numeric(q) ,"Invalid q argument")
+        )
+        VaR_achieved <- max(x[, k][x[, k] <= q])
+      }
+      
+      if (is.null(s)) {
+        validate(
+          need(is.numeric(s_ratio) ,"Invalid s_ratio argument")
+        )
+        ES <- mean((x[, k] - VaR_achieved) * (x[, k] > VaR_achieved))/(1 - alpha) + VaR_achieved
+        s <- s_ratio*ES
+      }
+      else {
+        validate(
+          need( (is.numeric(s)),"Invalid s argument")
+        )
+        ES <- mean((x[, k] - VaR_achieved) * (x[, k] > VaR_achieved))/(1 - alpha) + VaR_achieved
+      }
+      
+      validate(
+        need (any(q <= s),"q needs to be smaller than s."),
+        need (!any(VaR != q & ecdfx(VaR) == ecdfx(q)) ,"There are not enough data points, specifically, there is none between VaR and q."),
+        need (!any(abs(ecdfx(q) - ecdfx(s)) <= 1/n) ,"There are not enough data points, specifically, there is none between q and s."),
+        need (!any(s >= max(x[, k])) && !any(q <= min(x[, k])) ,"s needs to be smaller than the largest and all q larger than the smallest data point.")
+      )
+    }
+    
+    #Validation stress_mean
+    if (input$stressFunction3=="stress_mean"){
+      k <- argList$k
+      m <- argList$new_means
+      f <- as.list(rep(list(function(x) x), length(k)))
+      z <- matrix(0, ncol = length(f), nrow = nrow(x))
+      for (i in 1:length(f)) {
+        z[, i] <- apply(X = x[, k, drop = FALSE], MARGIN = 1, 
+                        FUN = f[[i]])
+      }
+      min.fz <- apply(z, 2, min)
+      max.fz <- apply(z, 2, max)
+      
+      validate(
+        need(is.numeric(m) ,"Invalid stressed mean argument")
+      )
+      
+      validate(
+        need( (!any(m < min.fz) && !any(m > max.fz)),  "Value of stressed mean out of range")
+      )
+      
+    }
+    
+    #Validation stress_mean_sd
+    if (input$stressFunction3=="stress_mean_sd"){
+      k <- argList$k
+      new_mean <- argList$new_means
+      
+      validate(
+        need(is.numeric(new_mean) ,"Invalid stressed mean argument")
+      )
+      
+      new_sd <- argList$new_sd
+      
+      validate(
+        need(is.numeric(new_sd) ,"Invalid stress sd argument")
+      )
+      
+      m <- c(new_mean, new_mean^2 + new_sd^2)
+      
+      means <- rep(list(function(x) x), length(k))
+      second_moments <- rep(list(function(x) x^2), length(k))
+      f <- as.list(c(means, second_moments))
+      z <- matrix(0, ncol = length(f), nrow = nrow(x))
+      for (i in 1:length(f)) {
+        z[, i] <- apply(X = x[, k, drop = FALSE], MARGIN = 1, 
+                        FUN = f[[i]])
+      }
+      min.fz <- apply(z, 2, min)
+      max.fz <- apply(z, 2, max)
+      
+      validate(
+        need( (!any(m < min.fz) && !any(m > max.fz)),  "Values out of range")
+      )
+    }
+    
+    stress_obj <-  do.call(input$stressFunction3,c(list(Dataset()),argList))
     
     performedStress$bool[3] <- TRUE
     updateCheckboxGroupInput(session, inputId = "plotStress1",choices = list("Stress 1" = 1, "Stress 2" = 2,"Stress 3" = 3), selected = 3)
     updateCheckboxGroupInput(session, inputId = "plotStress2",choices = list("Stress 1" = 1, "Stress 2" = 2,"Stress 3" = 3), selected = 3)
-    
+    updateRadioButtons(session, inputId = "download_stress1", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1",Stress2="Stress2",Stress3="Stress3"), inline = FALSE)
+    updateRadioButtons(session, inputId = "download_stress2", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1",Stress2="Stress2",Stress3="Stress3"), inline = FALSE)
+    updateRadioButtons(session, inputId = "download_stress3", label = "Stress", choices = c(Baseline="Baseline",Stress1="Stress1",Stress2="Stress2",Stress3="Stress3"), inline = FALSE)
     weights <- get_weights(stress_obj)
     diff <- max(weights)-min(weights)
     if (diff!=0) showNotification(ui = "The stress has been performed successfully! Wait...",type = "message",duration = 4)
@@ -352,6 +876,8 @@ server <- function(input, output, session) {
   
   output$text2 <- renderText({"Stress 2 can only be added after Stress 1"})
   output$text3 <- renderText({"Stress 3 can only be added after Stress 2"})
+  output$file_upload_text <- renderText({"Changing the dataset will restart the ShinyApp."})
+  
   
   moments_f <- function(x,probs){
     n <- length(as.vector(x))
@@ -363,41 +889,43 @@ server <- function(input, output, session) {
   }
   
   ## Summary_Base1: ------------------------
+  
   output$SummaryStressBase1 <- renderDataTable(expr = {
     data <- Dataset()
     base_moments <- apply(X = data,MARGIN = 2,FUN=moments_f,probs=c(0.25,0.5,0.75,0.95,0.99))
-    rownames(base_moments) <- c("mean", "sd", "Qu.25%","Qu.50%","Qu.75%", "Qu.95%","Qu.99%")
-    base_moments <- round(base_moments, digits = input$table_digits1)
+    rownames(base_moments) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+    base_moments <- format(round(base_moments, digits = input$table_digits1),nsmall = input$table_digits1)
     return(base_moments)
   },caption = htmltools::tags$caption("Summary Baseline", style="color:black; font-weight: bold"),
-  options=list(autoWidth = TRUE,
-               columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
   )
   
   
   ## Summary_Base2: ------------------------
   output$SummaryStressBase2 <- renderDataTable(expr = {
+    
     data <- Dataset()
     base_moments <- apply(X = data,MARGIN = 2,FUN=moments_f,probs=c(0.25,0.5,0.75,0.95,0.99))
-    rownames(base_moments) <- c("mean", "sd", "Qu.25%","Qu.50%","Qu.75%", "Qu.95%","Qu.99%")
-    base_moments <- round(base_moments, digits = input$table_digits2)
+    rownames(base_moments) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+    base_moments <- format(round(base_moments, digits = input$table_digits2),nsmall = input$table_digits2)
     return(base_moments)
   },caption = htmltools::tags$caption("Summary Baseline", style="color:black; font-weight: bold"),
-  options=list(autoWidth = TRUE,
-               columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
   )
   ## Summary_Base3: ------------------------
   output$SummaryStressBase3 <- renderDataTable(expr = {
     data <- Dataset()
     base_moments <- apply(X = data,MARGIN = 2,FUN=moments_f,probs=c(0.25,0.5,0.75,0.95,0.99))
-    rownames(base_moments) <- c("mean", "sd", "Qu.25%","Qu.50%","Qu.75%", "Qu.95%","Qu.99%")
-    base_moments <- round(base_moments, digits = input$table_digits3)
+    rownames(base_moments) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+    base_moments <- format(round(base_moments, digits = input$table_digits3),nsmall = input$table_digits3)
     return(base_moments)
   },caption = htmltools::tags$caption("Summary Baseline", style="color:black; font-weight: bold"),
-  options=list(autoWidth = TRUE,
-               columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
   )
   
@@ -410,12 +938,12 @@ server <- function(input, output, session) {
     swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
     colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
     swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
-    out <- round(swim_summary[[1]], digits = input$table_digits1)
-    rownames(out) <- c("mean", "sd", "Qu.25%","Qu.50%","Qu.75%", "Qu.95%","Qu.99%")
+    out <- format(round(swim_summary[[1]], digits = input$table_digits1),nsmall = input$table_digits1)
+    rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
     return(out)
   },caption = htmltools::tags$caption("Summary Stress 1", style="color:black; font-weight: bold"),
-  options=list(autoWidth = TRUE,
-               columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
   )
   
@@ -428,12 +956,12 @@ server <- function(input, output, session) {
     swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
     colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
     swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
-    out <- round(swim_summary[[1]], digits = input$table_digits2)
-    rownames(out) <- c("mean", "sd", "Qu.25%","Qu.50%","Qu.75%", "Qu.95%","Qu.99%")
+    out <- format(round(swim_summary[[1]], digits = input$table_digits2),nsmall = input$table_digits2)
+    rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
     return(out)
   },caption = htmltools::tags$caption("Summary Stress 2", style="color:black; font-weight: bold"),
-  options=list(autoWidth = TRUE,
-               columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
   )
   ## Summary_Stress3:------------------------
@@ -445,12 +973,12 @@ server <- function(input, output, session) {
     swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
     colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
     swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
-    out <- round(swim_summary[[1]], digits = input$table_digits3)
-    rownames(out) <- c("mean", "sd", "Qu.25%","Qu.50%","Qu.75%", "Qu.95%","Qu.99%")
+    out <- format(round(swim_summary[[1]], digits = input$table_digits3),nsmall = input$table_digits3)
+    rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
     return(out)
   },caption = htmltools::tags$caption("Summary Stress 3", style="color:black; font-weight: bold"),
-  options=list(autoWidth = TRUE,
-               columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
   )
   
@@ -460,12 +988,26 @@ server <- function(input, output, session) {
       x = "x - A vector, matrix or data frame containing realisations of random variables",
       alpha = "alpha - Level of the stressed VaR",
       q_ratio	= "q_ratio - The ratio of the stressed VaR to the baseline VaR",
+      q	= "q - Stressed VaR at level alpha (alternative to 'q_ratio')",
+      k = "k - The column of the data to be stressed",
+      s_ratio = "s_ratio - Numeric, vector, the ratio of the stressed ES to the baseline ES",
+      s	= "s - The stressed ES at level alpha (alternative to 's_ratio')",
+      new_means	= "new_mean - Stressed mean",
+      new_sd = "new_sd - Stressed standard deviation"
+    )
+    return(args[arg])
+  }
+  
+  subselect_text1 <- function(arg){
+    args <- list(
+      x = "x - A vector, matrix or data frame containing realisations of random variables",
+      alpha = "alpha - Level of the stressed VaR and ES",
+      q_ratio	= "q_ratio - The ratio of the stressed VaR to the baseline VaR",
       q	= "q - Stressed VaR at level alpha",
-      k = "k - The variable of x that is stressed",
+      k = "k - The column of the data to be stressed",
       s_ratio = "s_ratio - Numeric, vector, the ratio of the stressed ES to the baseline ES",
       s	= "s - The stressed ES at level alpha",
-      new_means	= "new_means - Stressed mean",
-      normalise	= "normalise - If true, values of f(x) are linearly scaled to the unit interval",
+      new_means	= "new_mean - Stressed mean",
       new_sd = "new_sd - Stressed standard deviation"
     )
     return(args[arg])
@@ -473,17 +1015,16 @@ server <- function(input, output, session) {
   
   
   
-  
   ##### Stress Comparison: -------------------
   ## Comparison dynamic ui: ------------------------
   observeEvent(input$plotFunction, {
     
-    if (input$plotFunction=="plot_hist") shinyjs::hide("dynamic_slider_y")
-    if (input$plotFunction!="plot_hist") shinyjs::show("dynamic_slider_y")
+    if (input$plotFunction=="Histogram") shinyjs::hide("dynamic_slider_y")
+    if (input$plotFunction!="Histogram") shinyjs::show("dynamic_slider_y")
     
     
-    if (input$plotFunction=="plot_weights") shinyjs::hide("plotBase")
-    if (input$plotFunction!="plot_weights") shinyjs::show("plotBase")
+    if (input$plotFunction=="Scenario Weights") shinyjs::hide("plotBase")
+    if (input$plotFunction!="Scenario Weights") shinyjs::show("plotBase")
     
   })
   
@@ -491,30 +1032,30 @@ server <- function(input, output, session) {
   output$dynamic_slider_x <- renderUI({
     
     suppressWarnings(expr = {
-    data <- as.matrix(Dataset())
-    var <- input$plotVar
-    
-    validate(
-      need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
-    )
-    
-    validate(
-      need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
-    )
-    
-      if (input$plotFunction=="plot_quantile") {
+      data <- as.matrix(Dataset())
+      var <- input$plotVar
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      if (input$plotFunction=="Quantiles") {
         min_slider <- 0
         max_slider <- 1
       } else  {
         min_slider <- round(min(data[,var]),4)
         max_slider <- round(max(data[,var]),4)
       }
-    
+      
       if (is.finite(min_slider) == TRUE){
-      sliderInput("slider_x", label = "Range x-axis", min = min_slider,width = "100%",
-          max = max_slider, value=c(min_slider,max_slider), round = -2,step = 0.01,ticks = FALSE)}
-      })
-      })
+        sliderInput("slider_x", label = "Range x-axis", min = min_slider,width = "100%",
+                    max = max_slider, value=c(min_slider,max_slider), round = -2,step = 0.01,ticks = FALSE)}
+    })
+  })
   
   ## Plot Slider y : ------------------------
   output$dynamic_slider_y <- renderUI({
@@ -526,60 +1067,82 @@ server <- function(input, output, session) {
       swim1 <- stress_VaR_obj1()
       weights1 <- get_weights(swim1)
       weights_min_max <- c(min(weights1),max(weights1))
-      }
+    }
     
     if (isTRUE(performedStress$bool[2])) {
       swim2 <- stress_VaR_obj2()
       weights2 <- get_weights(swim2)
       weights_min_max <- c(min(weights1),max(weights1))
-      }
+    }
     
     if (isTRUE(performedStress$bool[1])&&isTRUE(performedStress$bool[2])) weights_min_max <- c(min(weights1,weights2),max(weights1,weights2))
     
     if (!is.null(var)){
-      if (input$plotFunction=="plot_quantile") {
+      if (input$plotFunction=="Quantiles") {
         min_slider <- round(min(data[,var]),4)
         max_slider <- round(max(data[,var]),4)
-      } else if (input$plotFunction=="plot_weights")  {
+      } else if (input$plotFunction=="Scenario Weights")  {
         min_slider <- round(weights_min_max[1],4)
         max_slider <- round(weights_min_max[2],4)
       }
-      else if (input$plotFunction=="plot_cdf")  {
+      else if (input$plotFunction=="CDF")  {
         min_slider <- 0
         max_slider <- 1
       }
-      else if (input$plotFunction=="plot_hist")  {
+      else if (input$plotFunction=="Histogram")  {
         min_slider <- 0
         max_slider <- 1
       }
       
       sliderInput("slider_y", label = "Range y-axis", min = min_slider, ticks = FALSE,width = "100%",
                   max = max_slider, value=c(min_slider,max_slider),round = -2)
-      }
+    }
   })
+  
+  moments_s <- function(x, w){
+    n <- length(as.vector(x))
+    mean_w <- stats::weighted.mean(x = x, w = w)
+    sd_w <- sqrt(mean(w * (x - mean_w)^2)) * n / (n-1)
+    moments_w <- c(mean_w,sd_w)
+    return(moments_w)
+  }
   
   ##summary stress comparison: ------------------------
   output$summary_stress1 <- renderDataTable({
-  
-  validate(
-    need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
-  )
-  
-  swim <- swim_complete()
-  specs1 <- get_specs(swim)
-  k <- as.numeric(specs1[,2])
-  w <- get_weights(swim)
-  specs2 <- data.frame(colMeans(swim$x[,k]*w))
-  colnames(specs2) <- "new_mean"
-  out <- cbind(specs1,specs2)
-  n.stress <- length(swim$type)
-  out[,1][which(out[,1]=="VaR ES")] <- "VaR_ES"
-  out[,1][which(out[,1]=="mean sd")] <- "mean_sd"
-  rownames(out) <- paste("stress",1:n.stress,sep="")
-  out1 <- cbind(out[,1:2],round(out[,3:dim(out)[2]],2))
-  colnames(out1) <- colnames(out)
-  out1
-  },caption = htmltools::tags$caption("Stressess Loaded", style="color:black; font-weight: bold"),
+    
+    validate(
+      need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+    )
+    
+    swim <- swim_complete()
+    specs1 <- get_specs(swim)
+    k <- as.numeric(specs1[,2])
+    n.stress <- length(k)
+    w <- get_weights(swim)
+    m <- matrix(nrow=n.stress,ncol=2)
+    for (i in 1:n.stress){
+      m[i,] <- moments_s(swim$x[,k[i]],w[,i])
+    }
+    specs2 <- data.frame(m)
+    colnames(specs2) <- c("new_mean","new_sd")
+    out <- cbind(specs1,specs2)
+    out[,1][which(out[,1]=="VaR ES")] <- "VaR&ES"
+    out[,1][which(out[,1]=="mean sd")] <- "mean&sd"
+    pos_m <- which(colnames(out)=="new_mean")
+    pos_s <- which(colnames(out)=="new_sd")
+    var_pos <- which(out[,1]=="VaR")
+    vares_pos <- which(out[,1]=="VaR&ES")
+    varm_pos <- which(out[,1]=="mean")
+    out[var_pos,pos_m] <- NA
+    out[vares_pos,pos_m] <- NA
+    out[var_pos,pos_s] <- NA
+    out[vares_pos,pos_s] <- NA
+    out[varm_pos,pos_s] <- NA
+    rownames(out) <- paste("stress",1:n.stress,sep="")
+    out1 <- cbind(out[,1:2],round(out[,3:dim(out)[2]],2))
+    colnames(out1) <- colnames(out)
+    out1
+  },caption = htmltools::tags$caption("Stresses Loaded", style="color:black; font-weight: bold"),
   options=list(autoWidth = TRUE,
                columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE))
@@ -595,18 +1158,32 @@ server <- function(input, output, session) {
     swim <- swim_complete()
     specs1 <- get_specs(swim)
     k <- as.numeric(specs1[,2])
+    n.stress <- length(k)
     w <- get_weights(swim)
-    specs2 <- data.frame(colMeans(swim$x[,k]*w))
-    colnames(specs2) <- "new_mean"
+    m <- matrix(nrow=n.stress,ncol=2)
+    for (i in 1:n.stress){
+      m[i,] <- moments_s(swim$x[,k[i]],w[,i])
+    }
+    specs2 <- data.frame(m)
+    colnames(specs2) <- c("new_mean","new_sd")
     out <- cbind(specs1,specs2)
-    n.stress <- length(swim$type)
-    out[,1][which(out[,1]=="VaR ES")] <- "VaR_ES"
-    out[,1][which(out[,1]=="mean sd")] <- "mean_sd"
+    out[,1][which(out[,1]=="VaR ES")] <- "VaR&ES"
+    out[,1][which(out[,1]=="mean sd")] <- "mean&sd"
+    pos_m <- which(colnames(out)=="new_mean")
+    pos_s <- which(colnames(out)=="new_sd")
+    var_pos <- which(out[,1]=="VaR")
+    vares_pos <- which(out[,1]=="VaR&ES")
+    varm_pos <- which(out[,1]=="mean")
+    out[var_pos,pos_m] <- NA
+    out[vares_pos,pos_m] <- NA
+    out[var_pos,pos_s] <- NA
+    out[vares_pos,pos_s] <- NA
+    out[varm_pos,pos_s] <- NA
     rownames(out) <- paste("stress",1:n.stress,sep="")
     out1 <- cbind(out[,1:2],round(out[,3:dim(out)[2]],2))
     colnames(out1) <- colnames(out)
     out1
-  },caption = htmltools::tags$caption("Stressess Loaded", style="color:black; font-weight: bold"),
+  },caption = htmltools::tags$caption("Stresses Loaded", style="color:black; font-weight: bold"),
   options=list(autoWidth = TRUE,
                columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE))
@@ -615,6 +1192,11 @@ server <- function(input, output, session) {
   output$plotVariable <- renderUI({
     var <- colnames(Dataset())
     selectInput(inputId = "plotVar", label = "Select Variable", choices = var,selected =var[1],multiple = FALSE)
+  })
+  
+  output$plotVariable2 <- renderUI({
+  var <- colnames(Dataset())
+  selectInput(inputId = "plotVar2", label = "Select Variables", choices = var,selected = var,multiple = TRUE)
   })
   
   ## Plot Comparison: ------------------------
@@ -641,10 +1223,16 @@ server <- function(input, output, session) {
     stress <- paste(input$plotStress1)
     base_label <- input$plotBase
     var <- input$plotVar
-    plot_type <- input$plotFunction
+    
+    plot_t <- input$plotFunction
+    if (plot_t=="Histogram") plot_type = "plot_hist"
+    if (plot_t=="CDF") plot_type =  "plot_cdf"
+    if (plot_t=="Quantiles") plot_type =  "plot_quantile"
+    if (plot_t=="Scenario Weights") plot_type =  "plot_weights"
+    
     x_lim <- c(input$slider_x[1],input$slider_x[2])
     y_lim <- c(input$slider_y[1],input$slider_y[2])
-
+    
     if (plot_type=="plot_weights")
       args_plot <- list("object"=swim, "xCol" = var, "x_limits" = x_lim,"y_limits" = y_lim, "wCol" = as.numeric(stress), n = 5000)
     else if (plot_type=="plot_quantile")
@@ -690,22 +1278,19 @@ server <- function(input, output, session) {
     stress1 <- NULL
     stress2 <- NULL
     stress3 <- NULL
-    
     base <- NULL
-    
     out <- NULL
     
     validate(
       need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
     )
     
-    
     swim <- swim_complete()
     swim_summary <- summary(swim, base = TRUE)
     base_label <- input$plotBase
     var <- input$plotVar
     probs <- c(0.01,0.05, 0.25, 0.5, 0.75, 0.95,0.99)
-    probs_s <- paste("Qu",probs*100,sep="")
+    probs_s <- paste("Q",probs*100,sep="")
     
     if (isTRUE(performedStress$bool[1])&&(!is.null(var))) {
       
@@ -717,12 +1302,12 @@ server <- function(input, output, session) {
       stress1 <- c(s1,q1)
     }
     
-    if (isTRUE(performedStress$bool[2])){ 
+    if (isTRUE(performedStress$bool[2])&&(!is.null(var))){ 
       s2 <- swim_summary[[3]][,var][1:4]
       q2 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 2)
       stress2 <- c(s2,q2)
     }
-    if (isTRUE(performedStress$bool[3])) {
+    if (isTRUE(performedStress$bool[3])&&(!is.null(var))) {
       s3 <- swim_summary[[4]][,var][1:4]
       q3 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 3)
       stress3 <- c(s3,q3)
@@ -732,8 +1317,8 @@ server <- function(input, output, session) {
     
     if (length(stress1)!=0) {
       colnames(out) <- c("mean" ,"sd"," skewness"," ex_kurtosis",probs_s)
-      out <- round(out,3)
-    out
+      out <- round(out,input$table_digits_comparison)
+      out
     }
     
   },caption = htmltools::tags$caption(paste("Summary variable:",input$plotVar), style="color:black; font-weight: bold"),
@@ -761,27 +1346,433 @@ server <- function(input, output, session) {
     swim <- swim_complete()
     
     plot_type <- input$sens_function
-
-    args_plot <- list("object"=swim, "xCol" = "all", "wCol" = as.numeric(stress), type=plot_type)
+    var <- input$plotVar2
     
-      output$importance_rank <- renderTable(
-      {
-        
-        validate(
-          need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
-        )
-        
-        m <- do.call(importance_rank, args_plot)
-        m1 <- as.matrix(t(m)[-c(1,2),])
-        colnames(m1) <- paste("stress",as.numeric(stress),sep="")
-        m1
-      },spacing = "m",rownames = TRUE,colnames=TRUE,align = "c",striped=TRUE,bordered = TRUE,width = "100%")
+    validate(
+      need(length(var)>=1, "Wait..")
+    )
     
+    args_plot <- list("object"=swim, "xCol" = var, "wCol" = as.numeric(stress), type=plot_type)
+  
     if (!is.null(stress)){
       p <- do.call(plot_sensitivity, args_plot)
       p
     }
   },res = 115)
   
+  output$importance_rank <- renderDataTable(
+    {
+      
+      p <- NULL
+      stress <- paste(input$plotStress2)
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      validate(
+        need(length(stress)>=1, "Please select at least one stress")
+      )
+      
+      swim <- swim_complete()
+      
+      plot_type <- input$sens_function
+      var <- input$plotVar2
+      
+      validate(
+        need(length(var)>=1, "Wait..")
+      )
+      
+      args_plot <- list("object"=swim, "xCol" = var, "wCol" = as.numeric(stress), type=plot_type)
+      
+      m <- do.call(importance_rank, args_plot)
+      
+      m1 <- as.data.frame(m)[,-c(1,2)]
+      rownames(m1) <- paste("stress",as.numeric(stress),sep="")
+      
+      if (length(swim)!=0) {
+        m1
+      }
+      
+    },caption = htmltools::tags$caption("Importance Ranking", style="color:black; font-weight: bold"),
+    options=list(autoWidth = FALSE,
+                 columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
+                 paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE))
+  
+  observeEvent(input$reload, {
+    session$reload()
+  })
+  
+  output$dwn_btn1 <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".",input$download_type1, sep="")
+    },
+    content = function(file) {
+      
+      #baseline
+      if (input$download_stress1=="Baseline")
+      {
+      data <- Dataset()
+      base_moments <- apply(X = data,MARGIN = 2,FUN=moments_f,probs=c(0.25,0.5,0.75,0.95,0.99))
+      rownames(base_moments) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      out <- format(round(base_moments, digits = input$table_digits1),nsmall = input$table_digits1)
+      }
+      
+      #stress1
+      if (input$download_stress1=="Stress1"){
+      swim <- stress_VaR_obj1()
+      swim_summary <- summary(swim, base = FALSE)
+      swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+      swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+      swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+      colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+      swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+      out <- format(round(swim_summary[[1]], digits = input$table_digits1),nsmall = input$table_digits1)
+      rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      }
+      
+      #stress2
+      if (input$download_stress1=="Stress2"){
+        swim <- stress_VaR_obj2()
+        swim_summary <- summary(swim, base = FALSE)
+        swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+        swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+        swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+        colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+        swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+        out <- format(round(swim_summary[[1]], digits = input$table_digits1),nsmall = input$table_digits1)
+        rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      }
+      
+      #stress3
+      if (input$download_stress1=="Stress3"){
+        swim <- stress_VaR_obj3()
+        swim_summary <- summary(swim, base = FALSE)
+        swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+        swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+        swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+        colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+        swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+        out <- format(round(swim_summary[[1]], digits = input$table_digits1),nsmall = input$table_digits1)
+        rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      }
+      
+      if(input$download_type1=="csv") write.csv(out, file)
+      if(input$download_type1=="xlsx") write.xlsx(as.data.frame(out), file, colNames = TRUE, rowNames = TRUE)
+      if(input$download_type1=="txt") write.table(as.data.frame(out), file = file, sep = " ",row.names = TRUE, col.names = TRUE)
+      
+      }
+  )
+  
+  output$dwn_btn2 <- downloadHandler(filename = function() {
+    paste("data-", Sys.Date(), ".",input$download_type2, sep="")
+  },
+  content = function(file) {
+    
+    #baseline
+    if (input$download_stress2=="Baseline")
+    {
+      data <- Dataset()
+      base_moments <- apply(X = data,MARGIN = 2,FUN=moments_f,probs=c(0.25,0.5,0.75,0.95,0.99))
+      rownames(base_moments) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      out <- format(round(base_moments, digits = input$table_digits2),nsmall = input$table_digits2)
+    }
+    
+    #stress1
+    if (input$download_stress2=="Stress1"){
+      swim <- stress_VaR_obj1()
+      swim_summary <- summary(swim, base = FALSE)
+      swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+      swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+      swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+      colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+      swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+      out <- format(round(swim_summary[[1]], digits = input$table_digits2),nsmall = input$table_digits2)
+      rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+    }
+    
+    #stress2
+    if (input$download_stress2=="Stress2"){
+      swim <- stress_VaR_obj2()
+      swim_summary <- summary(swim, base = FALSE)
+      swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+      swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+      swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+      colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+      swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+      out <- format(round(swim_summary[[1]], digits = input$table_digits2),nsmall = input$table_digits2)
+      rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+    }
+    
+    #stress3
+    if (input$download_stress2=="Stress3"){
+      swim <- stress_VaR_obj3()
+      swim_summary <- summary(swim, base = FALSE)
+      swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+      swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+      swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+      colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+      swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+      out <- format(round(swim_summary[[1]], digits = input$table_digits2),nsmall = input$table_digits2)
+      rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+    }
+    
+    if(input$download_type2=="csv") write.csv(out, file)
+    if(input$download_type2=="xlsx") write.xlsx(as.data.frame(out), file, colNames = TRUE, rowNames = TRUE)
+    if(input$download_type2=="txt") write.table(as.data.frame(out), file = file, sep = " ",row.names = TRUE, col.names = TRUE)
+    
+  }
+  )
+  
+  output$dwn_btn3 <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".",input$download_type3, sep="")
+    },
+    content = function(file) {
+      
+      #baseline
+      if (input$download_stress3=="Baseline")
+      {
+        data <- Dataset()
+        base_moments <- apply(X = data,MARGIN = 2,FUN=moments_f,probs=c(0.25,0.5,0.75,0.95,0.99))
+        rownames(base_moments) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+        out <- format(round(base_moments, digits = input$table_digits3),nsmall = input$table_digits3)
+      }
+      
+      #stress1
+      if (input$download_stress3=="Stress1"){
+        swim <- stress_VaR_obj1()
+        swim_summary <- summary(swim, base = FALSE)
+        swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+        swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+        swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+        colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+        swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+        out <- format(round(swim_summary[[1]], digits = input$table_digits3),nsmall = input$table_digits3)
+        rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      }
+      
+      #stress2
+      if (input$download_stress3=="Stress2"){
+        swim <- stress_VaR_obj2()
+        swim_summary <- summary(swim, base = FALSE)
+        swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+        swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+        swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+        colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+        swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+        out <- format(round(swim_summary[[1]], digits = input$table_digits3),nsmall = input$table_digits3)
+        rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      }
+      
+      #stress3
+      if (input$download_stress3=="Stress3"){
+        swim <- stress_VaR_obj3()
+        swim_summary <- summary(swim, base = FALSE)
+        swim_summary[[1]] <- swim_summary[[1]][-c(3,4),]
+        swim_var <- SWIM::VaR_stressed(object = swim, alpha = c(0.95,0.99), base=TRUE)
+        swim_var_matrix <- swim_var[,1:dim(swim$x)[2]]
+        colnames(swim_var_matrix) <- colnames(swim_summary[[1]])
+        swim_summary[[1]] <- rbind(swim_summary[[1]],swim_var_matrix)
+        out <- format(round(swim_summary[[1]], digits = input$table_digits3),nsmall = input$table_digits3)
+        rownames(out) <- c("mean", "sd", "Q25","Q50","Q75", "Q95","Q99")
+      }
+      
+      if(input$download_type3=="csv") write.csv(out, file)
+      if(input$download_type3=="xlsx") write.xlsx(as.data.frame(out), file, colNames = TRUE, rowNames = TRUE)
+      if(input$download_type3=="txt") write.table(as.data.frame(out), file = file, sep = " ",row.names = TRUE, col.names = TRUE)
+      
+    }
+  )
+  
+  output$dwn_btn_plot1 <- downloadHandler(
+    filename = function() { paste("plot-",Sys.Date(), '.',input$download_plot_format1, sep="") },
+    content = function(file) {
+      p <- NULL
+      stress <- paste(input$plotStress1)
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      
+      validate(
+        need(isFALSE(is.null(input$slider_x[1])), "Wait...")
+      )
+      
+      validate(
+        need(length(stress)>=1, "Please select at least one stress")
+      )
+      
+      
+      swim <- swim_complete()
+      stress <- paste(input$plotStress1)
+      base_label <- input$plotBase
+      var <- input$plotVar
+      
+      plot_t <- input$plotFunction
+      if (plot_t=="Histogram") plot_type = "plot_hist"
+      if (plot_t=="CDF") plot_type =  "plot_cdf"
+      if (plot_t=="Quantiles") plot_type =  "plot_quantile"
+      if (plot_t=="Scenario Weights") plot_type =  "plot_weights"
+      
+      x_lim <- c(input$slider_x[1],input$slider_x[2])
+      y_lim <- c(input$slider_y[1],input$slider_y[2])
+      
+      if (plot_type=="plot_weights")
+        args_plot <- list("object"=swim, "xCol" = var, "x_limits" = x_lim,"y_limits" = y_lim, "wCol" = as.numeric(stress), n = 5000)
+      else if (plot_type=="plot_quantile")
+        args_plot <- list("object"=swim, "base" = base_label, "xCol" = var,"x_limits" = x_lim,"y_limits" = y_lim, "wCol" = as.numeric(stress))
+      else if (plot_type=="plot_cdf")
+        args_plot <- list("object"=swim, "base" = base_label, "xCol" = var,"x_limits" = x_lim,"y_limits" = y_lim, "wCol" = as.numeric(stress))
+      else
+        args_plot <- list("object"=swim, "base" = base_label, "xCol" = var,"x_limits" = x_lim, "wCol" = as.numeric(stress))
+      if (!is.null(input$slider_x[1])){
+        p <- do.call(plot_type, args_plot)
+      }
+      ggsave(filename = file,plot = p,height = input$slider_height1,width = input$slider_width1, units="px")
+    }
+    )
+  
+  output$dwn_btn_plot2 <- downloadHandler(
+    filename = function() { paste("plot-",Sys.Date(), '.',input$download_plot_format2, sep="") },
+    content = function(file) {
+      p <- NULL
+      stress <- paste(input$plotStress2)
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      validate(
+        need(length(stress)>=1, "Please select at least one stress")
+      )
+      
+      swim <- swim_complete()
+      
+      plot_type <- input$sens_function
+      var <- input$plotVar2
+      
+      validate(
+        need(length(var)>=1, "Wait..")
+      )
+      
+      args_plot <- list("object"=swim, "xCol" = var, "wCol" = as.numeric(stress), type=plot_type)
+      
+      if (!is.null(stress)){
+        p <- do.call(plot_sensitivity, args_plot)
+        
+      }
+      ggsave(filename = file,plot = p,height = input$slider_height2,width = input$slider_width2, units="px")
+    }
+  )
+  
+  output$dwn_btnY <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".",input$download_typeX, sep="")
+    },
+    content = function(file) {
+      stress1 <- NULL
+      stress2 <- NULL
+      stress3 <- NULL
+      base <- NULL
+      out <- NULL
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      swim <- swim_complete()
+      swim_summary <- summary(swim, base = TRUE)
+      base_label <- input$plotBase
+      var <- input$plotVar
+      probs <- c(0.01,0.05, 0.25, 0.5, 0.75, 0.95,0.99)
+      probs_s <- paste("Q",probs*100,sep="")
+      
+      if (isTRUE(performedStress$bool[1])&&(!is.null(var))) {
+        
+        b_stress <- swim_summary[[1]][,var][1:4]
+        base_q <- quantile(x = swim$x[,var],probs = probs)
+        base <- c(b_stress,base_q)
+        s1 <- swim_summary[[2]][,var][1:4]
+        q1 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 1)
+        stress1 <- c(s1,q1)
+      }
+      
+      if (isTRUE(performedStress$bool[2])&&(!is.null(var))){ 
+        s2 <- swim_summary[[3]][,var][1:4]
+        q2 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 2)
+        stress2 <- c(s2,q2)
+      }
+      if (isTRUE(performedStress$bool[3])&&(!is.null(var))) {
+        s3 <- swim_summary[[4]][,var][1:4]
+        q3 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 3)
+        stress3 <- c(s3,q3)
+      }
+      
+      out <- rbind(base,stress1,stress2,stress3)
+      
+      if (length(stress1)!=0) {
+        colnames(out) <- c("mean" ,"sd"," skewness"," ex_kurtosis",probs_s)
+        out <- round(out,input$table_digits_comparison)
+        
+      }
+      
+      if(input$download_typeX=="csv") write.csv(out, file)
+      if(input$download_typeX=="xlsx") write.xlsx(as.data.frame(out), file, colNames = TRUE, rowNames = TRUE)
+      if(input$download_typeX=="txt") write.table(as.data.frame(out), file = file, sep = " ",row.names = TRUE, col.names = TRUE)
+      
+      
+    }
+    
+  )
+  
+  output$sessionInfo <- renderPrint({
+    knitr::kable(x=utils::capture.output(utils::sessionInfo()))
+  }) 
+  
+  output$dwn_btnZ <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".",input$download_typeZ, sep="")
+    },
+    content = function(file) {
+      
+      p <- NULL
+      stress <- paste(input$plotStress2)
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      validate(
+        need(length(stress)>=1, "Please select at least one stress")
+      )
+      
+      swim <- swim_complete()
+      
+      plot_type <- input$sens_function
+      var <- input$plotVar2
+      
+      validate(
+        need(length(var)>=1, "Wait..")
+      )
+      
+      args_plot <- list("object"=swim, "xCol" = var, "wCol" = as.numeric(stress), type=plot_type)
+      
+      m <- do.call(importance_rank, args_plot)
+      
+      m1 <- as.data.frame(m)[,-c(1,2)]
+      rownames(m1) <- paste("stress",as.numeric(stress),sep="")
+      out <- m1
+      if(input$download_typeZ=="csv") write.csv(out, file)
+      if(input$download_typeZ=="xlsx") write.xlsx(as.data.frame(out), file, colNames = TRUE, rowNames = TRUE)
+      if(input$download_typeZ=="txt") write.table(as.data.frame(out), file = file, sep = " ",row.names = TRUE, col.names = TRUE)
+      
+      
+    }
+   
+    
+  )
+  
   
 }
+  
