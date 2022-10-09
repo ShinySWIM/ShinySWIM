@@ -87,7 +87,7 @@ ui <- navbarPage(
                         a(strong("SWIM"), href = "https://CRAN.R-project.org/package=SWIM", target = "_blank"),
                         "and its capabilities, including the design of custom stresses not implemented in this app, see ",
                       a(strong("SWIM Vignette"), href = "https://cran.r-project.org/web/packages/SWIM/vignettes/SWIM-vignette.html", target = "_blank"), 
-                      ".")
+                      ". For feedback or for letting us know how you use SWIM in practice, please ",a(strong("email us"), href = "mailto:swimpackage@gmail.com"), ". Furthermore, if you would like to receive news and updates about SWIM, please complete", a(strong("this form"), href = "https://CRAN.R-project.org/package=SWIM", target = "_blank"),".")
                )
            )
   )),
@@ -95,13 +95,15 @@ ui <- navbarPage(
            sidebarLayout(
              sidebarPanel(width = 4,
                           h3("Input data"),
+                          p("The authors of ShinySWIM do not store your data, which are deleted at the end of your session.", strong("However, we strongly recommend that you do not upload any data that are confidential or have not been anonymised.")),
+                          
+                          hr(),
+                          h4("Upload a dataset"),
                           helpText(
                             p("Upload a file (*.csv, *.txt) containing",
                               "your own dataset (the default 'credit_data' of the SWIM package has been pre-uploaded for demonstration purposes). A preview of the dataset will be shown in the main",
                               "panel on the right."),
                           ),
-                          hr(),
-                          h4("Upload a dataset"),
                           fileInput("file_upload", "Choose file:",
                                     multiple = FALSE,
                                     accept = c("text/csv",
@@ -402,12 +404,14 @@ ui <- navbarPage(
                             DTOutput("summary_stress1")
                           ),
                           wellPanel(style = "background-color: #ffffff;",
-                                    h4("Control Panel"),
+                                    h3("Control Panel"),
                                     helpText(
                                       p("To analyse the effect of different stresses on the selected variable. In the right panels the comparison is performed both through a plot and a set of statistics."),
                                     ),
                                     hr(),
                                     uiOutput("plotVariable"),
+                                    hr(),
+                                    h4("Plot options"),
                                     selectInput("plotFunction", 
                                                 "Select plot", c(
                                                   "Histogram",
@@ -416,15 +420,17 @@ ui <- navbarPage(
                                                   "Scenario Weights"
                                                 )
                                     ),
-                                    hr(),
                                     fluidRow(column(6,checkboxGroupInput("plotStress1", label = h5("Select stress"), 
                                                                          choices = list("Stress 1" = 1),
                                                                          selected = 1)),
                                              column(6,h5("Add"),
                                                     checkboxInput("plotBase","Baseline",value = TRUE))),
-                                    hr(),
                                     uiOutput("dynamic_slider_x"),
-                                    uiOutput("dynamic_slider_y"))),
+                                    uiOutput("dynamic_slider_y"),
+                                    hr(),
+                                    h4("Risk Measures"),
+                          sliderInput("sliderVaR", label = "VaR level", min = 0.05,width = "100%",max = 0.995, value= 0.9 , round = -2,step = 0.005,ticks = TRUE),
+                          sliderInput("sliderES", label = "ES level", min = 0.05,width = "100%",max = 0.995, value= 0.9 , round = -2,step = 0.005,ticks = TRUE))),      
              mainPanel(width = 8,
                        wellPanel(
                          style="padding:5px",
@@ -453,13 +459,17 @@ ui <- navbarPage(
                                                              max = 3000, value=2000),
                                                  sliderInput("slider_width1", label = "Width (px)", min = 1000,
                                                              max = 3000, value=2400),
-
-
                                                  downloadButton("dwn_btn_plot1","Download plot",status="primary"),
+                                                 hr(),
                                                  h4("Summary"),
                                                  radioButtons("download_typeX"
                                                               ,label = "Format",choices = c(csv="csv",xlsx="xlsx",txt="txt")),
-                                                 downloadButton("dwn_btnY","Download summary",status="primary")
+                                                 downloadButton("dwn_btnY","Download summary",status="primary"),
+                                                 hr(),
+                                                 h4("Risk Measures"),
+                                                 radioButtons("download_typeXXX"
+                                                              ,label = "Format",choices = c(csv="csv",xlsx="xlsx",txt="txt")),
+                                                 downloadButton("dwn_btnXXX","Download risk measures",status="primary")
                                   )),
                            column(width = 1, offset = 0,
                                   dropdownButton(right = TRUE,
@@ -476,11 +486,14 @@ ui <- navbarPage(
                          )
                        ),
                        wellPanel(style = "background-color: #ffffff;",
-                                 #  h4("Plot Comparison"),
                                  withSpinner(plotOutput("plot",width = "100%",height = "600px"),color="#0dc5c1")),
                        wellPanel(style = "background-color: #ffffff;",
-                                 #     h4("Numerical Comparison"),
-                                 DTOutput("comparisonfigures"))
+                                 DTOutput("comparisonfigures")),
+                       fluidRow(
+                         column(width=6,
+                       wellPanel(style = "background-color: #ffffff;",
+                                 DTOutput("comparisonRM"))
+                                 ))
              )
            )
   ),
@@ -493,7 +506,7 @@ ui <- navbarPage(
                             DTOutput("summary_stress2")
                           ),
                           wellPanel(style = "background-color: #ffffff;",
-                                    h4("Control Panel"),
+                                    h3("Control Panel"),
                                     helpText(
                                       p("To select the sensitivity measure used to compare the effects of the stresses on different model components"),
                                     ),
@@ -528,6 +541,7 @@ ui <- navbarPage(
                                                  sliderInput("slider_width2", label = "Width (px)", min = 1000,
                                                              max = 3000, value=2400),
                                                  downloadButton("dwn_btn_plot2","Download plot",status="primary"),
+                                                 hr(),
                                                  h4("Ranking"),
                                                  radioButtons("download_typeZ"
                                                               ,label = "Format",choices = c(csv="csv",xlsx="xlsx",txt="txt")),
@@ -563,7 +577,7 @@ ui <- navbarPage(
                       fluidRow(
                         div(
                           style = "position: relative", 
-                          column(width = 5,
+                          column(width = 12,
                                  #style = "background-color:#FFFFFF;",
                                  h3("Credit Data"),
                                  
@@ -590,21 +604,45 @@ ui <- navbarPage(
                       fluidRow(
                         div(
                           style = "position: relative", 
-                          column(width = 5,
+                          column(width = 12,
                                    h3("Basic Information"),
-                                   p(strong("Version:"),"xx"),
-                                   p(strong("Authors:"),"xx"),
-                                   p(strong("Contributors:"),"xx"),
-                                   p(strong("Date:"),"xx"),
-                                   p(strong("Citation:"),"xx"),
-                                   br(),
-                                   p("Shiny: ShinySWIM is powered by the Shiny web application framework (RStudio)"),
-                                 br(),
-                                 br(),
-                                 h3("Session Info"),
-                                 htmlOutput("sessionInfo"),
+                                   p(strong("Version:"),"0.9.0"),
+                                   p(strong("Authors:"),"Alberto Bettini, Silvana M. Pesenti, Pietro Millossovich, Andreas Tsanakas"),
+                                   p(strong("Contributors:"),"Markus Gesmann"),
+                                   p(strong("Date:"),"October 10, 2022"),
+                                 
+                                 h3("Citation"),
+                                   p("If you use this package, please use the following citation information:",
+                                     br(),
+"Pesenti, Silvana M., et al. Scenario Weights for Importance Measurement (SWIM)-an R package for sensitivity analysis. Annals of Actuarial Science 15.2 (2021): 458-483.",
+br(),
+br(),
+ "A BibTeX entry for LaTeX user is:", 
+br(),
+"@article{pesenti2021scenario,
+
+  title={Scenario Weights for Importance Measurement (SWIM)--an R package for sensitivity analysis},
+
+  author={Pesenti, Silvana M and Bettini, Alberto and Millossovich, Pietro and Tsanakas, Andreas},
+
+  journal={Annals of Actuarial Science},
+
+  volume={15},
+
+  number={2},
+
+  pages={458--483},
+
+  year={2021},
+
+  publisher={Cambridge University Press}
+
+}"),
                                    h3("Issues"),
-                                   p("If you need help or suggest improvements please open an issue on GitHub. xxx add link here xxx")
+                                   p("If you need help or suggest improvements please open an issue on",a(strong("Github"), href = "https://github.com/ShinySWIM/ShinySWIM/issues", target = "_blank")),
+br(),
+br(),
+p("Shiny: ShinySWIM is powered by the Shiny web application framework (RStudio)")
                           )
                         )
                       )
@@ -613,7 +651,7 @@ ui <- navbarPage(
                       fluidRow(
                         div(
                           style = "position: relative", 
-                          column(width = 5,
+                          column(width = 12,
                                 h3("Terms of service"),
                                 p("By accessing this web site, you are agreeing to be bound by these
                                   web site Terms and Conditions of Use, all applicable laws and regulations,

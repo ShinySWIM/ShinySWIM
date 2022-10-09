@@ -1,4 +1,5 @@
 
+
 server <- function(input, output, session) {
   
   options(shiny.maxRequestSize = 30*1024^2)
@@ -161,7 +162,7 @@ server <- function(input, output, session) {
   
   output$selected_sens_measures <- renderText({ 
     s <- ""
-    if (input$sens_function=="Gamma") s <- "The Gamma measure quantified a normalised change in a variable's expectation, caused by a stress"
+    if (input$sens_function=="Gamma") s <- "The Gamma measure quantifies a normalised change in a variable's expectation, caused by a stress"
     if (input$sens_function=="Wasserstein") s <- "The Wasserstein measure gives the distance between the variable's distributions under the baseline and stressed models"
     s
   })
@@ -1001,12 +1002,12 @@ server <- function(input, output, session) {
   subselect_text1 <- function(arg){
     args <- list(
       x = "x - A vector, matrix or data frame containing realisations of random variables",
-      alpha = "alpha - Level of the stressed VaR and ES",
+      alpha = "alpha - Level of the stressed VaR",
       q_ratio	= "q_ratio - The ratio of the stressed VaR to the baseline VaR",
-      q	= "q - Stressed VaR at level alpha",
+      q	= "q - Stressed VaR at level alpha (alternative to 'q_ratio')",
       k = "k - The column of the data to be stressed",
       s_ratio = "s_ratio - Numeric, vector, the ratio of the stressed ES to the baseline ES",
-      s	= "s - The stressed ES at level alpha",
+      s	= "s - The stressed ES at level alpha (alternative to 's_ratio')",
       new_means	= "new_mean - Stressed mean",
       new_sd = "new_sd - Stressed standard deviation"
     )
@@ -1298,18 +1299,18 @@ server <- function(input, output, session) {
       base_q <- quantile(x = swim$x[,var],probs = probs)
       base <- c(b_stress,base_q)
       s1 <- swim_summary[[2]][,var][1:4]
-      q1 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 1)
+      q1 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 1,type="i/n")
       stress1 <- c(s1,q1)
     }
     
     if (isTRUE(performedStress$bool[2])&&(!is.null(var))){ 
       s2 <- swim_summary[[3]][,var][1:4]
-      q2 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 2)
+      q2 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 2,type="i/n")
       stress2 <- c(s2,q2)
     }
     if (isTRUE(performedStress$bool[3])&&(!is.null(var))) {
       s3 <- swim_summary[[4]][,var][1:4]
-      q3 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 3)
+      q3 <- quantile_stressed(object = swim,probs = probs,xCol = var,wCol = 3,type="i/n")
       stress3 <- c(s3,q3)
     }
     
@@ -1321,7 +1322,7 @@ server <- function(input, output, session) {
       out
     }
     
-  },caption = htmltools::tags$caption(paste("Summary variable:",input$plotVar), style="color:black; font-weight: bold"),
+  },caption = htmltools::tags$caption(paste("Summary, variable",input$plotVar), style="color:black; font-weight: bold"),
   options=list(autoWidth = TRUE,
                columnDefs = list(list(className = 'dt-center',width = '7%', targets = "_all")),
                paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE))
@@ -1714,7 +1715,6 @@ server <- function(input, output, session) {
       if (length(stress1)!=0) {
         colnames(out) <- c("mean" ,"sd"," skewness"," ex_kurtosis",probs_s)
         out <- round(out,input$table_digits_comparison)
-        
       }
       
       if(input$download_typeX=="csv") write.csv(out, file)
@@ -1768,9 +1768,115 @@ server <- function(input, output, session) {
     
   )
   
-  output$sessionInfo <- renderPrint({
-    utils::capture.output(utils::sessionInfo())
-  })
+  output$comparisonRM <- renderDataTable({
+    
+    s1 <- NULL
+    s2 <- NULL
+    s3 <- NULL
+    q1 <- NULL
+    q2 <- NULL
+    q3 <- NULL
+    out <- NULL
+    out1 <- NULL
+    out2 <- NULL
+    
+    validate(
+      need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+    )
+    
+    swim <- swim_complete()
+    var <- input$plotVar
+    
+    if (isTRUE(performedStress$bool[1])&&(!is.null(var))) {
+      q1 <- VaR_stressed(object = swim,alpha = input$sliderVaR,xCol = var,wCol = 1,base = TRUE)
+      s1 <- ES_stressed(object = swim,alpha = input$sliderES,xCol = var,wCol = 1,base = TRUE)
+    }
+    
+    if (isTRUE(performedStress$bool[2])&&(!is.null(var))){ 
+      q2 <- VaR_stressed(object = swim,alpha = input$sliderVaR,xCol = var,wCol = 2,base = TRUE)
+      s2 <- ES_stressed(object = swim,alpha = input$sliderES,xCol = var,wCol = 2,base = TRUE) 
+    }
+    
+    if (isTRUE(performedStress$bool[3])&&(!is.null(var))) {
+      q3 <- VaR_stressed(object = swim,alpha = input$sliderVaR,xCol = var,wCol = 3,base = TRUE)
+      s3 <- ES_stressed(object = swim,alpha = input$sliderES,xCol = var,wCol = 3,base = TRUE)
+    }
+    
+    out1 <- rbind(q1[2],q1[1],q2[1],q3[1])
+    out2 <- rbind(s1[2],s1[1],s2[1],s3[1])
+    out <- cbind(out1,out2)
+    
+    if (length(out)!=0) {
+      n <- length(out[,1])
+      if (n==2) rownames(out) <- c("base","stress1")
+      if (n==3) rownames(out) <- c("base","stress1","stress2")
+      if (n==4) rownames(out) <- c("base","stress1","stress2","stress3")
+      colnames(out) <- c(paste("VaR, level",input$sliderVaR),paste("ES, level",input$sliderES))
+      out <- round(out,input$table_digits_comparison)
+      out
+    }
+    
+  },caption = htmltools::tags$caption(paste("Risk Measures, variable",input$plotVar), style="color:black; font-weight: bold"),
+  options=list(autoWidth = FALSE,
+               columnDefs = list(list(className = 'dt-center',width = '5%', targets = "_all")),
+               paging=FALSE,rownames = TRUE, colnames = TRUE,  scrollX = TRUE, searching=FALSE, ordering = FALSE, info = FALSE, lengthChange = FALSE)
+  ) 
+  
+  output$dwn_btnXXX <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".",input$download_typeXXX, sep="")
+    },
+    content = function(file) {
+      s1 <- NULL
+      s2 <- NULL
+      s3 <- NULL
+      q1 <- NULL
+      q2 <- NULL
+      q3 <- NULL
+      out <- NULL
+      out1 <- NULL
+      out2 <- NULL
+      
+      validate(
+        need(isTRUE(any(performedStress$bool)), "Please insert at least one stress")
+      )
+      
+      swim <- swim_complete()
+      var <- input$plotVar
+      
+      if (isTRUE(performedStress$bool[1])&&(!is.null(var))) {
+        q1 <- VaR_stressed(object = swim,alpha = input$sliderVaR,xCol = var,wCol = 1,base = TRUE)
+        s1 <- ES_stressed(object = swim,alpha = input$sliderES,xCol = var,wCol = 1,base = TRUE)
+      }
+      
+      if (isTRUE(performedStress$bool[2])&&(!is.null(var))){ 
+        q2 <- VaR_stressed(object = swim,alpha = input$sliderVaR,xCol = var,wCol = 2,base = TRUE)
+        s2 <- ES_stressed(object = swim,alpha = input$sliderES,xCol = var,wCol = 2,base = TRUE) 
+      }
+      
+      if (isTRUE(performedStress$bool[3])&&(!is.null(var))) {
+        q3 <- VaR_stressed(object = swim,alpha = input$sliderVaR,xCol = var,wCol = 3,base = TRUE)
+        s3 <- ES_stressed(object = swim,alpha = input$sliderES,xCol = var,wCol = 3,base = TRUE)
+      }
+      
+      out1 <- rbind(q1[2],q1[1],q2[1],q3[1])
+      out2 <- rbind(s1[2],s1[1],s2[1],s3[1])
+      out <- cbind(out1,out2)
+      
+      if (length(out)!=0) {
+        n <- length(out[,1])
+        if (n==2) rownames(out) <- c("base","stress1")
+        if (n==3) rownames(out) <- c("base","stress1","stress2")
+        if (n==4) rownames(out) <- c("base","stress1","stress2","stress3")
+        colnames(out) <- c(paste("VaR, level",input$sliderVaR),paste("ES, level",input$sliderES))
+        out <- round(out,input$table_digits_comparison)
+      }
+      
+      if(input$download_typeX=="csv") write.csv(out, file)
+      if(input$download_typeX=="xlsx") write.xlsx(as.data.frame(out), file, colNames = TRUE, rowNames = TRUE)
+      if(input$download_typeX=="txt") write.table(as.data.frame(out), file = file, sep = " ",row.names = TRUE, col.names = TRUE)
+    }
+  )
   
 }
   
