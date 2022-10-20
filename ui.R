@@ -94,7 +94,7 @@ ui <- navbarPage(
                       href = "mailto:swimpackage@gmail.com"),"
                       Furthermore, if you would like to receive news and updates about SWIM, please complete", 
                       a(strong("this form."), 
-                        href = "mailto:swimpackage@gmail.com?subject=Keep me updated with ShinySwim&body=Hi all,%0D%0A%0D%0AMy name is XXX and I would to be kept informed about news and developements of ShinySWIM.%0D%0A%0D%0AThanks%0D%0A%0D%0ANAME", 
+                        href = "mailto:swimpackage@gmail.com?subject=Keep me updated with ShinySwim&body=Dear ShinySWIM team,%0D%0A%0D%0AMy name is XXX and I would like to be kept informed about news and developments regarding ShinySWIM.%0D%0A%0D%0AThanks%0D%0A%0D%0ANAME", 
                         target = "_blank"))
                )
            )
