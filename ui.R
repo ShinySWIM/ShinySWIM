@@ -86,9 +86,16 @@ ui <- navbarPage(
                       p("For more information on",
                         a(strong("SWIM"), href = "https://CRAN.R-project.org/package=SWIM", target = "_blank"),
                         "and its capabilities, including the design of custom stresses not implemented in this app, see ",
-                      a(strong("SWIM Vignette"), href = "https://cran.r-project.org/web/packages/SWIM/vignettes/SWIM-vignette.html", target = "_blank"),".
-                      For feedback or for letting us know how you use SWIM in practice, please ",a(strong("email us"), href = "mailto:swimpackage@gmail.com"),".
-                      Furthermore, if you would like to receive news and updates about SWIM, please complete", a(strong("this form"), href = "mailto:swimpackage@gmail.com?subject=Keep me updated with ShinySwim&body=Hi all,%0D%0A%0D%0AMy name is XXX and I would to be kept informed about news and developements of ShinySWIM.%0D%0A%0D%0AThanks%0D%0A%0D%0ANAME", target = "_blank"),".")
+                      a(strong("SWIM Vignette."), 
+                      href = "https://cran.r-project.org/web/packages/SWIM/vignettes/SWIM-vignette.html", 
+                      target = "_blank"),"
+                      For feedback or for letting us know how you use SWIM in practice, please ",
+                      a(strong("email us."), 
+                      href = "mailto:swimpackage@gmail.com"),"
+                      Furthermore, if you would like to receive news and updates about SWIM, please complete", 
+                      a(strong("this form."), 
+                        href = "mailto:swimpackage@gmail.com?subject=Keep me updated with ShinySwim&body=Hi all,%0D%0A%0D%0AMy name is XXX and I would to be kept informed about news and developements of ShinySWIM.%0D%0A%0D%0AThanks%0D%0A%0D%0ANAME", 
+                        target = "_blank"))
                )
            )
   )),
